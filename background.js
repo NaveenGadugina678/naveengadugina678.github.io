@@ -8,9 +8,12 @@
   'use strict';
 
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const BLUR = 2;  // px of background blur: 0 = sharp, 2 = a little, 4 = soft (navbar glass is 8)
+  const PAD = 8;   // canvas overhangs the screen by this much so the blur never fades at the edges
   const cv = document.createElement('canvas');
   cv.setAttribute('aria-hidden', 'true');
-  cv.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none';
+  cv.style.cssText = 'position:fixed;top:-' + PAD + 'px;left:-' + PAD + 'px;width:calc(100% + ' + (2 * PAD) + 'px);' +
+    'height:calc(100% + ' + (2 * PAD) + 'px);z-index:-1;pointer-events:none;filter:blur(' + BLUR + 'px)';
   document.body.prepend(cv);
   const ctx = cv.getContext('2d');
 
@@ -94,9 +97,9 @@
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     W = window.innerWidth;
     H = window.innerHeight;
-    cv.width = W * dpr;
-    cv.height = H * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cv.width = (W + 2 * PAD) * dpr;
+    cv.height = (H + 2 * PAD) * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, PAD * dpr, PAD * dpr);
     readScroll();
     if (reduced) draw();
   }
@@ -189,12 +192,12 @@
   // ---------- drawing ----------
   function ridge(h, dy, off) {
     ctx.beginPath();
-    ctx.moveTo(-70, H + 10);
+    ctx.moveTo(-70, H + PAD + 10);
     for (let x = -70; x <= W + 70; x += 10) {
       const u = x - off;
       ctx.lineTo(x, H * h.y + dy + H * h.a * (Math.sin(u * h.f[0] + h.ph[0]) + 0.5 * Math.sin(u * h.f[1] + h.ph[1])));
     }
-    ctx.lineTo(W + 70, H + 10);
+    ctx.lineTo(W + 70, H + PAD + 10);
     ctx.closePath();
   }
 
@@ -204,7 +207,7 @@
     g.addColorStop(0, at(SKY_TOP, sp));
     g.addColorStop(1, at(SKY_BOT, sp));
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    ctx.fillRect(-PAD, -PAD, W + 2 * PAD, H + 2 * PAD);
 
     // sun: rises on the left, sets on the right as you scroll
     const R = Math.max(28, Math.min(56, Math.min(W, H) * 0.07));
