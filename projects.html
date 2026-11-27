@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Projects — Naveen Gadugina</title>
-  <meta name="description" content="All projects built by Naveen Gadugina." />
+  <meta name="description" content="All software engineering and machine learning projects built by Naveen Gadugina." />
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -22,6 +22,7 @@
       <nav class="nav-links" id="navLinks">
         <a href="index.html#about" class="nav-link">About</a>
         <a href="projects.html" class="nav-link">Projects</a>
+        <a href="interests.html" class="nav-link">Interests</a>
         <a href="index.html#contact" class="nav-link">Contact</a>
         <a href="assets/cv/cv.pdf" download class="nav-cv-btn">Download CV</a>
       </nav>
@@ -41,7 +42,7 @@
       <a href="index.html#projects" class="back-link reveal">&larr; Back to home</a>
       <h1 class="page-heading reveal">All My Projects</h1>
       <p class="page-subheading reveal">
-        Everything I've built so far, big and small. New projects get added here as I finish them.
+        Systems, machine learning, and software projects I've built from scratch—complete with benchmarks and tests.
       </p>
     </section>
 
@@ -49,21 +50,95 @@
     <section class="section projects projects-all">
       <div class="project-grid">
 
-        <!-- Project card — copy this block and edit the content to add a new project.
-             This grid grows as you add more cards; no other changes needed. -->
+        <article class="project-card reveal">
+          <div class="project-visual project-visual--blue">
+            <span class="project-visual-emoji">⚙️</span>
+          </div>
+          <h3 class="project-name">Tensora — C++20 Autograd Engine</h3>
+          <p class="project-description">
+            Dependency-free C++20 strided tensor and reverse-mode autograd engine with zero-copy views, stride-0 broadcasting, 64×64 cache-tiled OpenMP matmul (10.4×–14.3× speedup, 39.46 GFLOP/s), 37.6K samples/sec MLP training, and 7/7 finite-difference gradchecks.
+          </p>
+          <div class="project-tech">
+            <span class="mini-tag">C++20</span>
+            <span class="mini-tag">OpenMP</span>
+            <span class="mini-tag">SIMD</span>
+            <span class="mini-tag">CMake</span>
+          </div>
+          <div class="project-links">
+            <a href="https://github.com/NaveenGadugina678/tensora" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
+          </div>
+        </article>
+
+        <article class="project-card reveal">
+          <div class="project-visual project-visual--peach">
+            <span class="project-visual-emoji">⚡</span>
+          </div>
+          <h3 class="project-name">PulseBoard — Real-Time Cached Backend</h3>
+          <p class="project-description">
+            Real-time collaborative issue board built with FastAPI, WebSockets, SQLite WAL composite B-Tree indexing, Single-Flight LRU/TTL caching, and Token-Bucket rate limiting—cutting p99 latency by 91.3% (51.4K RPS) and stampede DB load by 98%.
+          </p>
+          <div class="project-tech">
+            <span class="mini-tag">Python</span>
+            <span class="mini-tag">FastAPI</span>
+            <span class="mini-tag">WebSockets</span>
+            <span class="mini-tag">SQLite</span>
+          </div>
+          <div class="project-links">
+            <a href="https://github.com/NaveenGadugina678/pulseboard" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
+          </div>
+        </article>
+
+        <article class="project-card reveal">
+          <div class="project-visual project-visual--yellow">
+            <span class="project-visual-emoji">🔎</span>
+          </div>
+          <h3 class="project-name">VeriRank — Hybrid RAG &amp; Verification</h3>
+          <p class="project-description">
+            Multi-stage search pipeline combining Okapi BM25, Truncated SVD dense vectors, Reciprocal Rank Fusion, an 8-feature pairwise RankNet re-ranker (0.833 Recall@5, 0.95 ms p95), and a claim-level hallucination gate (1.000 F1).
+          </p>
+          <div class="project-tech">
+            <span class="mini-tag">Python</span>
+            <span class="mini-tag">NumPy</span>
+            <span class="mini-tag">SciPy</span>
+            <span class="mini-tag">FastAPI</span>
+          </div>
+          <div class="project-links">
+            <a href="https://github.com/NaveenGadugina678/verirank" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
+          </div>
+        </article>
+
+        <article class="project-card reveal">
+          <div class="project-visual project-visual--coral">
+            <span class="project-visual-emoji">🧠</span>
+          </div>
+          <h3 class="project-name">QuantLoRA — LoRA &amp; INT8/INT4 Engine</h3>
+          <p class="project-description">
+            From-scratch Low-Rank Adaptation (LoRA) and post-training quantization lifting domain-shifted Macro-F1 from 0.459 to 0.998 with 4.9% trainable parameters, plus per-channel INT8 (3.88×) and bit-packed INT4 (6.25×) compression with zero F1 drop.
+          </p>
+          <div class="project-tech">
+            <span class="mini-tag">Python</span>
+            <span class="mini-tag">NumPy</span>
+            <span class="mini-tag">FastAPI</span>
+            <span class="mini-tag">Docker</span>
+          </div>
+          <div class="project-links">
+            <a href="https://github.com/NaveenGadugina678/quantlora" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
+          </div>
+        </article>
+
         <article class="project-card reveal">
           <div class="project-visual project-visual--blue">
             <span class="project-visual-emoji">🗂️</span>
           </div>
-          <h3 class="project-name">Interpreter</h3>
+          <h3 class="project-name">Monkey Language Interpreter</h3>
           <p class="project-description">
-          Tree-walking interpreter for the Monkey programming language in Go, implementing a custom lexer, parser, and AST evaluator.
+            Tree-walking interpreter for the Monkey programming language built from scratch in Go, implementing a custom lexer, Pratt parser, abstract syntax tree (AST), and expression evaluator.
           </p>
           <div class="project-tech">
             <span class="mini-tag">Go</span>
           </div>
           <div class="project-links">
-            <a href="https://github.com/NaveenGadugina678/Monkey-Programming-Language" class="btn btn-outline">GitHub</a>
+            <a href="https://github.com/NaveenGadugina678/Monkey-Programming-Language" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
           </div>
         </article>
 
@@ -73,14 +148,14 @@
           </div>
           <h3 class="project-name">Stock Price Direction Predictor</h3>
           <p class="project-description">
-          Machine learning model that predicts next-day stock price direction (up or down) from historical market data and technical indicators.
+            Machine learning pipeline that forecasts next-day stock price direction using historical OHLCV market data, engineered technical indicators, and Scikit-learn classification models.
           </p>
           <div class="project-tech">
             <span class="mini-tag">Python</span>
-            <span class="mini-tag">sci-kit learn</span>
+            <span class="mini-tag">Scikit-learn</span>
           </div>
           <div class="project-links">
-            <a href="https://github.com/NaveenGadugina678/Stock-Price-Direction-Predictor" class="btn btn-outline">GitHub</a>
+            <a href="https://github.com/NaveenGadugina678/Stock-Price-Direction-Predictor" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
           </div>
         </article>
 
@@ -90,15 +165,15 @@
           </div>
           <h3 class="project-name">Space Invaders</h3>
           <p class="project-description">
-          Classic Space Invaders arcade game built in C++ with raylib using object-oriented design.
+            Classic arcade Space Invaders game built in C++ with Raylib, structured around modular object-oriented design for entity management, collision detection, and real-time game loops.
           </p>
           <div class="project-tech">
             <span class="mini-tag">C++</span>
-            <span class="mini-tag">raylib</span>
+            <span class="mini-tag">Raylib</span>
           </div>
           <div class="project-links">
-            <a href="https://github.com/NaveenGadugina678/Space-Invaders" class="btn btn-outline">GitHub</a>
-            <a href="https://naveengadugina678.github.io/Space-Invaders/" class="btn btn-outline">Play</a>
+            <a href="https://github.com/NaveenGadugina678/Space-Invaders" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
+            <a href="https://naveengadugina678.github.io/Space-Invaders/" target="_blank" rel="noopener noreferrer" class="btn btn-outline">Play</a>
           </div>
         </article>
 
@@ -108,37 +183,16 @@
           </div>
           <h3 class="project-name">Chess</h3>
           <p class="project-description">
-          Interactive Chess game implemented in C++ with the raylib graphics library.
+            Interactive desktop Chess game implemented in C++ with Raylib, featuring full piece move validation, turn management, and custom 2D board rendering.
           </p>
           <div class="project-tech">
             <span class="mini-tag">C++</span>
-            <span class="mini-tag">raylib</span>
+            <span class="mini-tag">Raylib</span>
           </div>
           <div class="project-links">
-            <a href="https://github.com/NaveenGadugina678/Chess-Game" class="btn btn-outline">GitHub</a>
+            <a href="https://github.com/NaveenGadugina678/Chess-Game" target="_blank" rel="noopener noreferrer" class="btn btn-outline">GitHub</a>
           </div>
         </article>
-   <article class="project-card reveal">
-          <div class="project-visual project-visual--blue">
-            <span class="project-visual-emoji">&#129518;</span>
-          </div>
-          <h3 class="project-name">Tensora</h3>
-          <p class="project-description">
-          Dependency-free C++20 strided tensor & reverse-mode autograd engine with zero-copy views, stride-0 broadcasting, 64x64 cache-tiled OpenMP matmul (10.39x-14.34x speedup, up to 39.46 GFLOP/s), 37,616 samples/sec MLP training, and 7/7 finite-difference gradcheck tests.
-          </p>
-          <div class="project-tech">
-            <span class="mini-tag">C++20/span>
-            <span class="mini-tag">OpenMP</span>
-          </div>
-          <div class="project-links">
-            <a href="https://github.com/NaveenGadugina678/tensora" class="btn btn-outline">GitHub</a>
-          </div>
-        </article>
-        <!--
-          Add future projects by pasting a new <article class="project-card reveal"> block here.
-          Cycle through project-visual--blue / --peach / --yellow for the icon background,
-          and pick any emoji you like for project-visual-emoji.
-        -->
 
       </div>
     </section>
@@ -152,7 +206,7 @@
       <p class="footer-tagline">Built with curiosity &amp; code.</p>
       <div class="footer-links">
         <a href="https://github.com/NaveenGadugina678" target="_blank" rel="noopener noreferrer">GitHub</a>
-        <a href="https://linkedin.com/in/naveen-gadugina" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+        <a href="https://www.linkedin.com/in/naveen-gadugina-0a4766321" target="_blank" rel="noopener noreferrer">LinkedIn</a>
         <a href="mailto:naveeng99022@gmail.com">Email</a>
       </div>
     </div>
