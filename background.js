@@ -1,15 +1,24 @@
 // =====================================================
-// LIVING BACKGROUND
-// Golden-hour paper-cut sky: dawn -> day -> dusk as you scroll, hills slide with the cursor.
-// Dopamine molecules (C8H11NO2) built from spring physics: drag an atom, fling it, watch it wobble.
+// LIVING BACKGROUND v2
+// A computation graph (nodes, edges, pulses) behind the page, plus a string of paper bunting
+// hung under the navbar that scrolls away with the page.
+//   - Edges near the cursor light up in coral.
+//   - Click or tap empty space: a pulse fans out through the graph, like gradients flowing backward.
+//   - Brush the bunting and the flags swing; scrolling makes them flutter.
 // Drop-in: load after script.js. Creates its own fixed <canvas> behind the page.
 // =====================================================
 (function () {
   'use strict';
 
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const BLUR = 2;  // px of background blur: 0 = sharp, 2 = a little, 4 = soft (navbar glass is 8)
-  const PAD = 8;   // canvas overhangs the screen by this much so the blur never fades at the edges
+
+  // ---------- knobs ----------
+  const BLUR = 1.5;           // px of background blur: 0 = sharp, 2 = soft (navbar glass is 8)
+  const PAD = 8;              // canvas overhangs the screen by this much so the blur never fades at the edges
+  const GRAPH_ALPHA = 0.65;   // overall strength of the graph layer; lower = quieter behind text
+  const BUNTING_ALPHA = 0.95; // overall strength of the bunting
+  const BUNTING_TOP = 84;     // page-y of the string's anchor points (just under the navbar)
+
   const cv = document.createElement('canvas');
   cv.setAttribute('aria-hidden', 'true');
   cv.style.cssText = 'position:fixed;top:-' + PAD + 'px;left:-' + PAD + 'px;width:calc(100% + ' + (2 * PAD) + 'px);' +
@@ -17,80 +26,308 @@
   document.body.prepend(cv);
   const ctx = cv.getContext('2d');
 
-  let W = 0, H = 0, tp = 0, sp = 0, grab = null, pnx = 0.5;
-  const mouse = { x: -999, y: -999, nx: 0.5 };
+  const INK = '#111111';
+  const COL = ['#D6EFFF', '#FED18C', '#FED99B', '#FE654F']; // blue, peach, yellow, coral
+  const TAU = Math.PI * 2;
 
-  // ---------- colour helpers (keyframes are [dawn, day, dusk]) ----------
-  const ease = (t) => t * t * (3 - 2 * t);
-  const rgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-  const mix = (a, b, t) => {
-    const x = rgb(a), y = rgb(b);
-    return 'rgb(' + x.map((v, i) => Math.round(v + (y[i] - v) * t)).join(',') + ')';
-  };
-  const at = (k, p) => (p < 0.5 ? mix(k[0], k[1], ease(p * 2)) : mix(k[1], k[2], ease(p * 2 - 1)));
+  let W = 0, H = 0, lastW = 0, lastH = 0;
+  let scrollY = window.scrollY;
+  const mouse = { x: -999, y: -999 };
 
-  const SKY_TOP = ['#FFD9A8', '#CFEBFF', '#FFB8A6'];
-  const SKY_BOT = ['#FFF1D6', '#F6FBFF', '#FFE2B8'];
-  const SUN = ['#FED18C', '#FFE08A', '#FE654F'];
-  // y = ridge height (fraction of viewport), a = bumpiness, par = cursor parallax in px
-  const HILLS = [
-    { y: 0.80, a: 0.035, f: [0.004, 0.011], ph: [0.5, 2.1], par: 14, c: ['#F7C9A0', '#BEE2F8', '#F59C8A'] },
-    { y: 0.86, a: 0.030, f: [0.006, 0.015], ph: [2.4, 0.3], par: 28, c: ['#FED18C', '#FED99B', '#FE8F7A'] },
-    { y: 0.92, a: 0.025, f: [0.009, 0.021], ph: [4.1, 1.7], par: 46, c: ['#FFDFA8', '#FFC77A', '#FF9A85'] },
-  ];
+  // small seeded RNG so the graph layout is the same on every load
+  function rng(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
 
-  // ---------- dopamine skeleton (hydrogens omitted) ----------
-  const S3 = Math.sqrt(3) / 2;
-  const SHAPE = [
-    ['C', S3, 0.5], ['C', 0, 1], ['C', -S3, 0.5], ['C', -S3, -0.5], ['C', 0, -1], ['C', S3, -0.5], // benzene ring 0-5
-    ['O', -2 * S3, 1], ['O', -2 * S3, -1],                                                          // two hydroxyls 6-7
-    ['C', 2 * S3, 1], ['C', 3 * S3, 0.5], ['N', 4 * S3, 1],                                         // ethylamine chain 8-10
-  ];
-  const BONDS = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 0], [2, 6], [3, 7], [0, 8], [8, 9], [9, 10]];
-  const COL = { C: '#FED99B', O: '#FE654F', N: '#D6EFFF' };
+  function segDist(px, py, ax, ay, bx, by) {
+    const dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy || 1;
+    let u = ((px - ax) * dx + (py - ay) * dy) / l;
+    u = u < 0 ? 0 : u > 1 ? 1 : u;
+    return Math.hypot(px - (ax + u * dx), py - (ay + u * dy));
+  }
 
-  const mols = [];
+  // =====================================================
+  // COMPUTATION GRAPH
+  // Round nodes are "ops", rounded squares are "tensors". Topology is fixed; nodes just bob.
+  // =====================================================
+  let nodes = [], edges = [], adj = [], flash = [], pulses = [];
+  let lastSpawn = 0;
 
-  function spawn(cx, cy, s, rot) {
-    const c = Math.cos(rot), n = Math.sin(rot);
-    const m = { atoms: [], springs: [], ax: 0, ay: 0, ph: Math.random() * 6.28, r: s * 0.36 };
+  function buildGraph() {
+    const rnd = rng(7);
+    const count = Math.max(16, Math.min(56, Math.round((W * H) / 22000)));
+    const cell = Math.sqrt((W * H) / count);
+    const cols = Math.ceil(W / cell), rows = Math.ceil(H / cell);
 
-    function link(i, j, k) {
-      const a = m.atoms[i], b = m.atoms[j];
-      m.springs.push({ a, b, k, l: Math.hypot(a.x - b.x, a.y - b.y) });
+    nodes = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const bx = (c + 0.2 + rnd() * 0.6) * cell;
+        const by = (r + 0.2 + rnd() * 0.6) * cell;
+        nodes.push({
+          bx, by, x: bx, y: by,
+          ph: rnd() * TAU, amp: 3 + rnd() * 4,
+          r: 7 + rnd() * 4, sq: rnd() < 0.34,
+          c: COL[nodes.length % 4],
+        });
+      }
     }
 
-    SHAPE.forEach(([el, x, y]) => {
-      x = (x - S3) * s;
-      y = y * s;
-      const X = cx + x * c - y * n, Y = cy + x * n + y * c;
-      m.atoms.push({ el, x: X, y: Y, px: X, py: Y });
+    // link each node to its 3 nearest neighbours (within reach), without duplicates
+    edges = [];
+    adj = nodes.map(() => []);
+    const seen = new Set();
+    const reach = cell * 1.6;
+    nodes.forEach((a, i) => {
+      nodes
+        .map((b, j) => [j, Math.hypot(a.bx - b.bx, a.by - b.by)])
+        .filter(([j, d]) => j !== i && d < reach)
+        .sort((p, q) => p[1] - q[1])
+        .slice(0, 3)
+        .forEach(([j]) => {
+          const key = i < j ? i * 1000 + j : j * 1000 + i;
+          if (seen.has(key)) return;
+          seen.add(key);
+          edges.push([i, j]);
+          adj[i].push(j);
+          adj[j].push(i);
+        });
     });
 
-    // bonds are stiff; atoms two bonds apart get softer springs, which acts as bond-angle stiffness
-    const adj = m.atoms.map(() => new Set());
-    BONDS.forEach(([i, j]) => { adj[i].add(j); adj[j].add(i); link(i, j, 1); });
-    const seen = new Set();
-    adj.forEach((ns, i) => ns.forEach((j) => adj[j].forEach((k) => {
-      const key = i * 99 + k;
-      if (k > i && !ns.has(k) && !seen.has(key)) { seen.add(key); link(i, k, 0.35); }
-    })));
-
-    mols.push(m);
+    flash = nodes.map(() => 0);
+    pulses = [];
   }
 
-  function build() {
-    const k = Math.min(1, Math.max(0.6, W / 1200));
-    spawn(W * 0.78, H * 0.32, 44 * k, -0.4);
-    spawn(W * 0.14, H * 0.28, 30 * k, 0.9);
-    spawn(W * 0.50, H * 0.12, 24 * k, 2.3);
+  function placeNodes(t) {
+    for (const n of nodes) {
+      n.x = n.bx + (reduced ? 0 : Math.sin(t * 0.0006 + n.ph) * n.amp);
+      n.y = n.by + (reduced ? 0 : Math.cos(t * 0.0005 + n.ph * 1.3) * n.amp);
+    }
   }
 
-  // ---------- sizing and scroll ----------
-  function readScroll() {
-    const max = document.documentElement.scrollHeight - window.innerHeight;
-    tp = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
-    if (reduced) sp = tp;
+  // a wave of pulses fanning out from the nearest node, like gradients flowing backward
+  function clickWave(x, y) {
+    if (!nodes.length || pulses.length > 70) return;
+    let best = 0, bd = 1e9;
+    nodes.forEach((n, i) => {
+      const d = Math.hypot(n.x - x, n.y - y);
+      if (d < bd) { bd = d; best = i; }
+    });
+    const w = { seen: new Set([best]) };
+    flash[best] = 1;
+    adj[best].forEach((j) => pulses.push({ a: best, b: j, s: 0, w, gen: 0 }));
+  }
+
+  function stepGraph(t) {
+    placeNodes(t);
+    for (let i = 0; i < flash.length; i++) flash[i] *= 0.94;
+
+    // ambient pulses: short random walks so the graph never sits still
+    const ambient = pulses.filter((p) => !p.w).length;
+    if (t - lastSpawn > 650 && ambient < Math.max(4, (nodes.length / 6) | 0) && edges.length) {
+      lastSpawn = t;
+      const e = edges[(Math.random() * edges.length) | 0];
+      const fwd = Math.random() < 0.5;
+      pulses.push({ a: fwd ? e[0] : e[1], b: fwd ? e[1] : e[0], s: 0, hops: 0 });
+    }
+
+    for (let q = pulses.length - 1; q >= 0; q--) {
+      const p = pulses[q], a = nodes[p.a], b = nodes[p.b];
+      p.s += (p.w ? 3.2 : 2.0) / (Math.hypot(b.x - a.x, b.y - a.y) || 1);
+      if (p.s < 1) continue;
+
+      pulses.splice(q, 1);
+      flash[p.b] = Math.max(flash[p.b], p.w ? 1 : 0.5);
+
+      if (p.w) {
+        if (p.w.seen.has(p.b)) continue;
+        p.w.seen.add(p.b);
+        if (p.gen < 5 && pulses.length < 80) {
+          adj[p.b].forEach((j) => { if (j !== p.a) pulses.push({ a: p.b, b: j, s: 0, w: p.w, gen: p.gen + 1 }); });
+        }
+      } else if (p.hops < 7) {
+        const opts = adj[p.b].filter((j) => j !== p.a);
+        if (opts.length) pulses.push({ a: p.b, b: opts[(Math.random() * opts.length) | 0], s: 0, hops: p.hops + 1 });
+      }
+    }
+  }
+
+  function nodePath(x, y, r, sq) {
+    ctx.beginPath();
+    if (!sq) { ctx.arc(x, y, r, 0, TAU); return; }
+    if (ctx.roundRect) ctx.roundRect(x - r, y - r, 2 * r, 2 * r, r * 0.3);
+    else ctx.rect(x - r, y - r, 2 * r, 2 * r);
+  }
+
+  function drawGraph() {
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // edges: faint ink, coral where the cursor is close
+    edges.forEach(([i, j]) => {
+      const a = nodes[i], b = nodes[j];
+      ctx.globalAlpha = GRAPH_ALPHA * 0.3;
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+
+      const near = Math.max(0, 1 - segDist(mouse.x, mouse.y, a.x, a.y, b.x, b.y) / 110);
+      if (near > 0.02) {
+        ctx.globalAlpha = GRAPH_ALPHA * near;
+        ctx.strokeStyle = COL[3];
+        ctx.lineWidth = 1.5 + near * 2.5;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      }
+    });
+
+    // nodes: hard paper-cut shadow, fill, outline; flash overlay when a pulse arrives
+    nodes.forEach((n, i) => {
+      const near = Math.max(0, 1 - Math.hypot(n.x - mouse.x, n.y - mouse.y) / 90);
+      const r = n.r * (1 + 0.35 * near + 0.25 * flash[i]);
+
+      ctx.globalAlpha = GRAPH_ALPHA;
+      ctx.fillStyle = 'rgba(17,17,17,0.12)';
+      nodePath(n.x + 3, n.y + 3, r, n.sq); ctx.fill();
+
+      ctx.fillStyle = n.c;
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 2;
+      nodePath(n.x, n.y, r, n.sq); ctx.fill(); ctx.stroke();
+
+      if (flash[i] > 0.03) {
+        ctx.globalAlpha = GRAPH_ALPHA * flash[i];
+        ctx.fillStyle = COL[3];
+        nodePath(n.x, n.y, r, n.sq); ctx.fill(); ctx.stroke();
+      }
+    });
+
+    // pulses: coral waves leave a trail along the edge, ambient ones are small peach dots
+    pulses.forEach((p) => {
+      const a = nodes[p.a], b = nodes[p.b];
+      const x = a.x + (b.x - a.x) * p.s, y = a.y + (b.y - a.y) * p.s;
+      ctx.globalAlpha = GRAPH_ALPHA;
+      if (p.w) {
+        ctx.strokeStyle = COL[3];
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(x, y); ctx.stroke();
+      }
+      ctx.fillStyle = p.w ? COL[3] : COL[1];
+      ctx.strokeStyle = INK;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, p.w ? 5 : 3.5, 0, TAU); ctx.fill(); ctx.stroke();
+    });
+
+    ctx.globalAlpha = 1;
+  }
+
+  // =====================================================
+  // PAPER BUNTING
+  // Verlet chain pinned at both ends. Each point is also pulled gently toward its resting
+  // position on a parabola, so the string always settles into a nice droop and then sways.
+  // Lives in page coordinates (drawn at -scrollY), so it scrolls away with the hero.
+  // =====================================================
+  let bunting = null;
+
+  function buildBunting() {
+    const N = Math.max(12, Math.min(60, Math.round(W / 30) + 1));
+    const sag = Math.max(30, Math.min(64, W * 0.045));
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      const u = i / (N - 1);
+      const rx = -6 + (W + 12) * u;
+      const ry = BUNTING_TOP + sag * 4 * u * (1 - u);
+      pts.push({ rx, ry, x: rx, y: ry, px: rx, py: ry });
+    }
+    const len = [];
+    for (let i = 0; i < N - 1; i++) len.push(Math.hypot(pts[i + 1].rx - pts[i].rx, pts[i + 1].ry - pts[i].ry));
+    bunting = { pts, len, sag, flag: Math.max(16, Math.min(26, W * 0.017)) };
+  }
+
+  function buntingVisible() {
+    return bunting && scrollY < BUNTING_TOP + bunting.sag + bunting.flag + 60;
+  }
+
+  function stepBunting(t) {
+    if (!buntingVisible()) return;
+    const P = bunting.pts, N = P.length, my = mouse.y + scrollY;
+
+    for (let i = 1; i < N - 1; i++) {
+      const q = P[i];
+      let vx = (q.x - q.px) * 0.98 + (q.rx - q.x) * 0.012 + Math.sin(t * 0.0011 + i * 0.4) * 0.025;
+      let vy = (q.y - q.py) * 0.98 + (q.ry - q.y) * 0.012 + Math.sin(t * 0.0013 + i * 0.55) * 0.035;
+
+      const dx = q.x - mouse.x, dy = q.y - my, d = Math.hypot(dx, dy);
+      if (d < 70 && d > 0.1) {
+        const f = (70 - d) * 0.02;
+        vx += (dx / d) * f;
+        vy += (dy / d) * f;
+      }
+      q.px = q.x; q.py = q.y;
+      q.x += vx; q.y += vy;
+    }
+
+    for (let k = 0; k < 10; k++) {
+      for (let i = 0; i < N - 1; i++) {
+        const a = P[i], b = P[i + 1];
+        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1e-4;
+        const wa = i === 0 ? 0 : 1, wb = i === N - 2 ? 0 : 1;
+        const f = (d - bunting.len[i]) / d / (wa + wb);
+        a.x += dx * f * wa; a.y += dy * f * wa;
+        b.x -= dx * f * wb; b.y -= dy * f * wb;
+      }
+    }
+  }
+
+  function drawBunting(t) {
+    if (!buntingVisible()) return;
+    const P = bunting.pts, N = P.length, fh = bunting.flag;
+
+    ctx.save();
+    ctx.translate(0, -scrollY);
+    ctx.globalAlpha = BUNTING_ALPHA;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    // flags hang straight down and swing with the string's motion
+    for (let i = 0; i < N - 1; i++) {
+      const a = P[i], b = P[i + 1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const ax = a.x + dx * 0.1, ay = a.y + dy * 0.1;
+      const bx = a.x + dx * 0.9, by = a.y + dy * 0.9;
+      const swing = Math.max(-fh * 0.6, Math.min(fh * 0.6, ((a.x - a.px) + (b.x - b.px)) * fh * 0.35));
+      const tx = (ax + bx) / 2 + swing + (reduced ? 0 : Math.sin(t * 0.0014 + i) * 1.5);
+      const ty = (ay + by) / 2 + fh;
+
+      ctx.beginPath(); ctx.moveTo(ax + 3, ay + 3); ctx.lineTo(bx + 3, by + 3); ctx.lineTo(tx + 3, ty + 3); ctx.closePath();
+      ctx.fillStyle = 'rgba(17,17,17,0.12)'; ctx.fill();
+
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.lineTo(tx, ty); ctx.closePath();
+      ctx.fillStyle = COL[i % 4]; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = INK; ctx.stroke();
+    }
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = INK;
+    ctx.beginPath();
+    ctx.moveTo(P[0].x, P[0].y);
+    for (let i = 1; i < N; i++) ctx.lineTo(P[i].x, P[i].y);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // =====================================================
+  // SIZING, INPUT, LOOP
+  // =====================================================
+  function draw(t) {
+    ctx.clearRect(-PAD, -PAD, W + 2 * PAD, H + 2 * PAD);
+    drawGraph();
+    drawBunting(t);
   }
 
   function resize() {
@@ -100,166 +337,65 @@
     cv.width = (W + 2 * PAD) * dpr;
     cv.height = (H + 2 * PAD) * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, PAD * dpr, PAD * dpr);
-    readScroll();
-    if (reduced) draw();
-  }
 
-  // ---------- pointer: grab an atom and fling it ----------
-  const BLOCK = 'a,button,input,.project-card,.photo-card,.contact-card,.navbar,.lightbox,.hero-art';
-
-  function pick(e) {
-    if (e.target.closest && e.target.closest(BLOCK)) return null;
-    let best = null, bd = 1e9;
-    for (const m of mols) {
-      for (const a of m.atoms) {
-        const d = Math.hypot(a.x - e.clientX, a.y - e.clientY);
-        if (d < m.r + 12 && d < bd) { best = a; bd = d; }
-      }
+    // rebuild only on a real size change, not when a mobile address bar nudges the height
+    if (!nodes.length || W !== lastW || Math.abs(H - lastH) > 150) {
+      buildGraph();
+      buildBunting();
+      lastW = W;
+      lastH = H;
     }
-    return best;
+    if (reduced) draw(0);
   }
+
+  // clicks on these should do their own thing, not start a pulse wave
+  const BLOCK = 'a,button,input,textarea,select,.project-card,.contact-card,.navbar,.lightbox';
 
   if (!reduced) {
-    window.addEventListener('mousemove', (e) => {
-      mouse.x = e.clientX;
-      mouse.y = e.clientY;
-      pnx = e.clientX / W;
-      if (!grab) document.body.style.cursor = pick(e) ? 'grab' : '';
-    });
-    window.addEventListener('mousedown', (e) => {
+    const clearPointer = () => { mouse.x = mouse.y = -999; };
+    window.addEventListener('pointermove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; }, { passive: true });
+    window.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
-      grab = pick(e);
-      if (grab) { e.preventDefault(); document.body.style.cursor = 'grabbing'; }
+      if (e.target.closest && e.target.closest(BLOCK)) return;
+      clickWave(e.clientX, e.clientY);
     });
-    window.addEventListener('mouseup', () => { grab = null; document.body.style.cursor = ''; });
-    document.documentElement.addEventListener('mouseleave', () => { mouse.x = mouse.y = -999; });
+    window.addEventListener('pointerup', (e) => { if (e.pointerType === 'touch') clearPointer(); });
+    window.addEventListener('pointercancel', clearPointer);
+    document.documentElement.addEventListener('pointerleave', clearPointer);
   }
 
   let lastY = window.scrollY;
   window.addEventListener('scroll', () => {
     const dy = window.scrollY - lastY;
     lastY = window.scrollY;
-    // scrolling nudges the molecules so they feel like they float in the page
-    if (!reduced) mols.forEach((m) => m.atoms.forEach((a) => { a.py += dy * 0.03; }));
-    readScroll();
-    if (reduced) draw();
+    scrollY = window.scrollY;
+    if (reduced) { draw(0); return; }
+
+    // scrolling makes the bunting flutter and occasionally fires a pulse
+    if (bunting) {
+      const kick = Math.max(-80, Math.min(80, dy)) * 0.05;
+      for (let i = 1; i < bunting.pts.length - 1; i++) bunting.pts[i].py -= kick;
+    }
+    if (Math.abs(dy) > 6 && Math.random() < 0.15 && edges.length && pulses.length < 40) {
+      const e = edges[(Math.random() * edges.length) | 0];
+      pulses.push({ a: e[0], b: e[1], s: 0, hops: 0 });
+    }
   }, { passive: true });
+
   window.addEventListener('resize', resize);
-  window.addEventListener('load', () => { readScroll(); sp = tp; if (reduced) draw(); });
-
-  // ---------- physics (Verlet) ----------
-  function step(t) {
-    mouse.nx += (pnx - mouse.nx) * 0.06;
-    sp += (tp - sp) * 0.08;
-
-    for (const m of mols) {
-      // slow wandering breeze so they never sit still, even on touch screens
-      m.ax = Math.cos(t * 0.00031 + m.ph) * 0.010;
-      m.ay = Math.sin(t * 0.00023 + m.ph * 2) * 0.008;
-
-      for (const a of m.atoms) {
-        if (a === grab) { a.px = a.x; a.py = a.y; a.x = mouse.x; a.y = mouse.y; continue; }
-        let vx = (a.x - a.px) * 0.993 + m.ax;
-        let vy = (a.y - a.py) * 0.993 + m.ay;
-        const dx = a.x - mouse.x, dy = a.y - mouse.y, d = Math.hypot(dx, dy);
-        if (!grab && d < 80 && d > 0.1) { vx += (dx / d) * (80 - d) * 0.004; vy += (dy / d) * (80 - d) * 0.004; }
-        const v = Math.hypot(vx, vy);
-        if (v > 26) { vx *= 26 / v; vy *= 26 / v; }
-        a.px = a.x; a.py = a.y;
-        a.x += vx; a.y += vy;
-      }
-
-      for (let i = 0; i < 5; i++) {
-        for (const s of m.springs) {
-          const a = s.a, b = s.b, dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1e-4;
-          const wa = a === grab ? 0 : 1, wb = b === grab ? 0 : 1;
-          if (!wa && !wb) continue;
-          const f = ((d - s.l) / d) * s.k / (wa + wb);
-          a.x += dx * f * wa; a.y += dy * f * wa;
-          b.x -= dx * f * wb; b.y -= dy * f * wb;
-        }
-      }
-
-      for (const a of m.atoms) {
-        const r = m.r;
-        let v;
-        if (a.x < r || a.x > W - r) { v = a.x - a.px; a.x = a.x < r ? r : W - r; a.px = a.x + 0.6 * v; }
-        if (a.y < r || a.y > H - r) { v = a.y - a.py; a.y = a.y < r ? r : H - r; a.py = a.y + 0.6 * v; }
-      }
-    }
-  }
-
-  // ---------- drawing ----------
-  function ridge(h, dy, off) {
-    ctx.beginPath();
-    ctx.moveTo(-70, H + PAD + 10);
-    for (let x = -70; x <= W + 70; x += 10) {
-      const u = x - off;
-      ctx.lineTo(x, H * h.y + dy + H * h.a * (Math.sin(u * h.f[0] + h.ph[0]) + 0.5 * Math.sin(u * h.f[1] + h.ph[1])));
-    }
-    ctx.lineTo(W + 70, H + PAD + 10);
-    ctx.closePath();
-  }
-
-  function draw() {
-    // sky
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, at(SKY_TOP, sp));
-    g.addColorStop(1, at(SKY_BOT, sp));
-    ctx.fillStyle = g;
-    ctx.fillRect(-PAD, -PAD, W + 2 * PAD, H + 2 * PAD);
-
-    // sun: rises on the left, sets on the right as you scroll
-    const R = Math.max(28, Math.min(56, Math.min(W, H) * 0.07));
-    const sx = W * (0.12 + 0.76 * sp), sy = H * (0.76 - 0.58 * Math.sin(Math.PI * sp));
-    ctx.fillStyle = 'rgba(17,17,17,0.14)';
-    ctx.beginPath(); ctx.arc(sx + 4, sy + 4, R, 0, 6.2832); ctx.fill();
-    ctx.beginPath(); ctx.arc(sx, sy, R, 0, 6.2832);
-    ctx.fillStyle = at(SUN, sp); ctx.fill();
-    ctx.lineWidth = 3; ctx.strokeStyle = '#111'; ctx.stroke();
-
-    // paper-cut hills: hard offset shadow, then the layer itself
-    HILLS.forEach((h) => {
-      const off = (mouse.nx - 0.5) * -h.par;
-      ridge(h, -5, off); ctx.fillStyle = 'rgba(17,17,17,0.10)'; ctx.fill();
-      ridge(h, 0, off); ctx.fillStyle = at(h.c, sp); ctx.fill();
-    });
-
-    // molecules
-    ctx.lineCap = 'round';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    for (const m of mols) {
-      ctx.strokeStyle = '#111';
-      ctx.lineWidth = m.r * 0.5;
-      ctx.beginPath();
-      BONDS.forEach(([i, j]) => { ctx.moveTo(m.atoms[i].x, m.atoms[i].y); ctx.lineTo(m.atoms[j].x, m.atoms[j].y); });
-      ctx.stroke();
-
-      ctx.lineWidth = Math.max(2, m.r * 0.18);
-      ctx.font = 'bold ' + Math.round(m.r * 1.1) + 'px "Baloo 2", system-ui, sans-serif';
-      for (const a of m.atoms) {
-        ctx.beginPath(); ctx.arc(a.x, a.y, m.r, 0, 6.2832);
-        ctx.fillStyle = COL[a.el]; ctx.fill(); ctx.stroke();
-        if (a.el !== 'C' && m.r >= 8) { ctx.fillStyle = a.el === 'O' ? '#FEFEFF' : '#111'; ctx.fillText(a.el, a.x, a.y + 1); }
-      }
-    }
-  }
 
   // ---------- start ----------
   resize();
-  sp = tp;
-  build();
 
   if (reduced) {
-    draw();
+    draw(0);
   } else {
     let last = 0, acc = 0;
     (function loop(t) {
       acc += Math.min(50, t - last);
       last = t;
-      while (acc >= 16.7) { step(t); acc -= 16.7; }
-      draw();
+      while (acc >= 16.7) { stepGraph(t); stepBunting(t); acc -= 16.7; }
+      draw(t);
       requestAnimationFrame(loop);
     })(0);
   }
